@@ -36,9 +36,10 @@ const (
 
 // KubeASConfig is the config of the API server.
 type KubeASConfig struct {
-	Tags              []string `yaml:"tags"`
-	CollectEvent      bool     `yaml:"collect_events"`
-	FilteredEventType []string `yaml:"filtered_event_types"`
+	Tags                []string `yaml:"tags"`
+	CollectEvent        bool     `yaml:"collect_events"`
+	CollectOShiftQuotas bool     `yaml:"collect_openshift_clusterquotas"`
+	FilteredEventType   []string `yaml:"filtered_event_types"`
 }
 
 // KubeASCheck grabs metrics and events from the API server.
@@ -54,6 +55,7 @@ type KubeASCheck struct {
 func (c *KubeASConfig) parse(data []byte) error {
 	// default values
 	c.CollectEvent = config.Datadog.GetBool("collect_kubernetes_events")
+	c.CollectOShiftQuotas = true
 
 	return yaml.Unmarshal(data, c)
 }
@@ -77,6 +79,7 @@ func (k *KubeASCheck) Run() error {
 	if err != nil {
 		return err
 	}
+	defer sender.Commit()
 
 	if config.Datadog.GetBool("cluster_agent") {
 		log.Debug("Cluster agent is enabled. Not running Kubernetes API Server check or collecting Kubernetes Events.")
@@ -117,7 +120,16 @@ func (k *KubeASCheck) Run() error {
 			k.Warnf("Could not collect API Server component status: %s", err.Error())
 		}
 	}
-	defer sender.Commit()
+
+	// Running OpenShift ClusterResourceQuota collection if available
+	if k.instance.CollectOShiftQuotas && k.ac.IsOpenShift() != apiserver.NotOpenShift {
+		quotas, err := k.ac.ListOShiftClusterQuotas()
+		if err != nil {
+			k.Warnf("Could not collect OpenShift cluster quotas: %s", err.Error())
+		} else {
+			k.reportClusterQuotas(quotas, sender)
+		}
+	}
 
 	// Running the event collection.
 	if !k.instance.CollectEvent {

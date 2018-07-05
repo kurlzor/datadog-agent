@@ -15,13 +15,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/DataDog/datadog-agent/pkg/util/kubernetes/apiserver"
-	"github.com/DataDog/datadog-agent/pkg/util/log"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/leaderelection"
 	rl "k8s.io/client-go/tools/leaderelection/resourcelock"
+
+	"github.com/DataDog/datadog-agent/pkg/util/kubernetes/apiserver"
+	"github.com/DataDog/datadog-agent/pkg/util/log"
 
 	"github.com/DataDog/datadog-agent/pkg/config"
 	"github.com/DataDog/datadog-agent/pkg/util/retry"
@@ -50,7 +51,7 @@ type LeaderEngine struct {
 	LeaseDuration   time.Duration
 	LeaseName       string
 	LeaderNamespace string
-	coreClient      *corev1.CoreV1Client
+	coreClient      corev1.CoreV1Interface
 
 	currentHolderMutex sync.RWMutex
 	leaderElector      *leaderelection.LeaderElector

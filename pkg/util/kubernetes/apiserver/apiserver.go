@@ -17,6 +17,8 @@ import (
 
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	k8sclient "k8s.io/client-go/kubernetes"
 	corev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -48,10 +50,11 @@ const (
 // apiserver endpoints. Use the shared instance via GetApiClient.
 type APIClient struct {
 	// used to setup the APIClient
-	initRetry retry.Retrier
-
-	Client  *corev1.CoreV1Client
-	timeout time.Duration
+	initRetry   retry.Retrier
+	ClientSet   k8sclient.Interface
+	Client      corev1.CoreV1Interface
+	timeout     time.Duration
+	isOpenShift OpenShiftApiLevel
 }
 
 // GetAPIClient returns the shared ApiClient instance.
@@ -59,7 +62,8 @@ func GetAPIClient() (*APIClient, error) {
 	if globalAPIClient == nil {
 		globalAPIClient = &APIClient{
 			// TODO: make it configurable if requested
-			timeout: 5 * time.Second,
+			timeout:     5 * time.Second,
+			isOpenShift: OpenShiftUnknown,
 		}
 		globalAPIClient.initRetry.SetupRetrier(&retry.Config{
 			Name:          "apiserver",
@@ -77,8 +81,8 @@ func GetAPIClient() (*APIClient, error) {
 	return globalAPIClient, nil
 }
 
-// getClient returns an official Kubernetes core v1 client
-func getClient() (*corev1.CoreV1Client, error) {
+// getClientSet returns an official Kubernetes core v1 client
+func getClientSet() (k8sclient.Interface, error) {
 	var k8sConfig *rest.Config
 	var err error
 
@@ -98,18 +102,18 @@ func getClient() (*corev1.CoreV1Client, error) {
 		}
 	}
 	k8sConfig.Timeout = 2 * time.Second
-	coreClient, err := corev1.NewForConfig(k8sConfig)
-	return coreClient, err
+	return k8sclient.NewForConfig(k8sConfig)
 }
 
 func (c *APIClient) connect() error {
 	var err error
-	if c.Client == nil {
-		c.Client, err = getClient()
+	if c.ClientSet == nil {
+		c.ClientSet, err = getClientSet()
 		if err != nil {
 			log.Errorf("Not Able to set up a client for the Leader Election: %s", err)
 			return err
 		}
+		c.Client = c.ClientSet.CoreV1()
 	}
 
 	// Try to get apiserver version to confim connectivity
@@ -462,4 +466,14 @@ func GetResourcesNamespace() string {
 	}
 	log.Errorf("There was an error fetching the namespace from the context, using default")
 	return "default"
+}
+
+// GetRESTObject allows to retrive a custom resource from the APIserver
+func (c *APIClient) GetRESTObject(path string, output runtime.Object) error {
+	result := c.Client.RESTClient().Get().AbsPath(path).Do()
+	if result.Error() != nil {
+		return result.Error()
+	}
+
+	return result.Into(output)
 }
